@@ -15,6 +15,7 @@ on:
         options:
           - tags
           - severity
+          - customcmd
       tags:
         description: "Tags to filter"
         required: false
@@ -30,6 +31,10 @@ on:
           - high
           - critical
           - unknown
+      customcmd:
+        description: "Custom CMD"
+        required: false
+        type: string
 
 env:
   GREKCON_USER: "${{ secrets.GREKCON_USER}}"
@@ -77,11 +82,13 @@ jobs:
           curl -qfsSL "https://$GREKCON_TOKEN@raw.githubusercontent.com/$GREKCON_USER/grekcon-core/main/scripts/run/brahamastra-run.sh" -o "./brahamastra-run.sh"; sudo chmod +x "./brahamastra-run.sh"
           FILTER_VALUE=""
           if [ "${{ github.event.inputs.filter_type }}" = "tags" ]; then
-            FILTER_VALUE="${{ github.event.inputs.tags }}"
+            FILTER_VALUE="-tags ${{ github.event.inputs.tags }}"
           elif [ "${{ github.event.inputs.filter_type }}" = "severity" ]; then
-            FILTER_VALUE="${{ github.event.inputs.severity }}"
+            FILTER_VALUE="-severity ${{ github.event.inputs.severity }}"
+          elif [ "${{ github.event.inputs.filter_type }}" = "customcmd" ]; then
+            FILTER_VALUE="${{ github.event.inputs.customcmd }}"
           fi
-          source "./brahamastra-run.sh" ${{ matrix.job_index }} ${{ github.event.inputs.filter_type }} $FILTER_VALUE ${{ secrets.ARCHIVE_PASSWORD }} 2>&1
+          source "./brahamastra-run.sh" ${{ matrix.job_index }} $FILTER_VALUE ${{ secrets.ARCHIVE_PASSWORD }} 2>&1
 
       - name: Upload results
         if: steps.should_run.outputs.run == 'true'
