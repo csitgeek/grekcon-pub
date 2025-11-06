@@ -1,0 +1,139 @@
+name: Brahamastra
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_count:
+        description: "Number of parallel jobs (max 20 for free tier)"
+        required: false
+        default: "20"
+        type: string
+      filter_type:
+        description: "Filter scan"
+        required: true
+        type: choice
+        options:
+          - tags
+          - severity
+      tags:
+        description: "Tags to filter"
+        required: false
+        type: string
+      severity:
+        description: "Severity level to filter"
+        required: false
+        type: choice
+        options:
+          - info
+          - low
+          - medium
+          - high
+          - critical
+          - unknown
+
+env:
+  GREKCON_USER: "${{ secrets.GREKCON_USER}}"
+  GREKCON_TOKEN: "${{ secrets.GREKCON_TOKEN}}"
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        job_index:
+          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check if job should run
+        id: should_run
+        run: |
+          JOB_COUNT="${{ github.event.inputs.job_count || '20' }}"
+          if [ ${{ matrix.job_index }} -ge "$JOB_COUNT" ]; then
+            echo "run=false" >> $GITHUB_OUTPUT
+          else
+            echo "run=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Brahamastra
+        if: steps.should_run.outputs.run == 'true'
+        run: |
+          curl -qfsSL "https://$GREKCON_TOKEN@raw.githubusercontent.com/$GREKCON_USER/grekcon-core/main/scripts/setup/setup-brahamastra.sh" -o "./setup-brahamastra.sh"; sudo chmod +x "./setup-brahamastra.sh" ; source "./setup-brahamastra.sh" >/dev/null 2>&1
+
+      - name: Split targets
+        if: steps.should_run.outputs.run == 'true'
+        run: |
+          curl -qfsSL "https://$GREKCON_TOKEN@raw.githubusercontent.com/$GREKCON_USER/grekcon-core/main/targets/targets.txt" -o "./targets.txt"
+          mkdir targets
+          curl -qfsSL "https://$GREKCON_TOKEN@raw.githubusercontent.com/$GREKCON_USER/grekcon-core/main/scripts/run/split-targets.sh" -o "./split-targets.sh"; sudo chmod +x "./split-targets.sh" 
+          JOB_COUNT="${{ github.event.inputs.job_count || '20' }}"
+          source ./split-targets.sh ./targets.txt "$JOB_COUNT" ${{ matrix.job_index }} targets/chunk-${{ matrix.job_index }}.txt 2>&1
+
+      - name: Run Brahamastra
+        if: steps.should_run.outputs.run == 'true'
+        run: |
+          curl -qfsSL "https://$GREKCON_TOKEN@raw.githubusercontent.com/$GREKCON_USER/grekcon-core/main/scripts/run/brahamastra-run.sh" -o "./brahamastra-run.sh"; sudo chmod +x "./brahamastra-run.sh"
+          FILTER_VALUE=""
+          if [ "${{ github.event.inputs.filter_type }}" = "tags" ]; then
+            FILTER_VALUE="${{ github.event.inputs.tags }}"
+          elif [ "${{ github.event.inputs.filter_type }}" = "severity" ]; then
+            FILTER_VALUE="${{ github.event.inputs.severity }}"
+          fi
+          source "./brahamastra-run.sh" ${{ matrix.job_index }} ${{ github.event.inputs.filter_type }} $FILTER_VALUE ${{ secrets.ARCHIVE_PASSWORD }} 2>&1
+
+      - name: Upload results
+        if: steps.should_run.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: brahamastra-job-${{ matrix.job_index }}-enc.txt
+          path: results/brahamastra/individual/job-${{ matrix.job_index }}/
+          retention-days: 1
+
+      - name: Upload Error
+        if: failure() && steps.should_run.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: brahamastra-job-${{ matrix.job_index }}-error.txt
+          path: results/brahamastra/individual/job-${{ matrix.job_index }}/error-job-${{ matrix.job_index }}.txt
+          retention-days: 1
+
+  combine:
+    needs: main
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: brahamastra-job-*-enc.txt
+          merge-multiple: true
+          path: results/
+
+      - name: Decrypt and Combine results
+        run: |
+          mkdir -p decrypted
+
+          for enc_file in $(find results/ -name "brahamastra-job-*-enc.txt" -type f); do
+            filename=$(basename "$enc_file")
+            dec_file="decrypted/${filename%.txt}.dec.txt"
+            openssl enc -aes256 -salt -pbkdf2 -d -in "$enc_file" -out "$dec_file" -k ${{secrets.ARCHIVE_PASSWORD}}
+          done
+
+          cat decrypted/*.txt > main.txt
+          zip -P ${{secrets.ARCHIVE_PASSWORD}} -r main.zip main.txt
+          rm main.txt
+
+      - name: Upload final Result
+        uses: actions/upload-artifact@v4
+        with:
+          name: brahamastra-result
+          path: main.zip
+          retention-days: 30
