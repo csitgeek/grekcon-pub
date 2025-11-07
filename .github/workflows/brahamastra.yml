@@ -91,7 +91,7 @@ jobs:
             FILTER_VALUE=${{github.event.inputs.customcmd}}
             FILTER_ARGS=$FILTER_VALUE
           fi
-          source "./brahamastra-run.sh" ${{ matrix.job_index }} "$FILTER_VALUE" ${{ secrets.ARCHIVE_PASSWORD }} 2>&1
+          source "./brahamastra-run.sh" ${{ matrix.job_index }} "$FILTER_ARGS" ${{ secrets.ARCHIVE_PASSWORD }} 2>&1
 
       - name: Upload results
         if: steps.should_run.outputs.run == 'true'
