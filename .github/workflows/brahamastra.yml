@@ -89,7 +89,7 @@ jobs:
             FILTER_ARGS="-severity $FILTER_VALUE"
           elif [ "${{ github.event.inputs.filter_type }}" = "customcmd" ]; then
             FILTER_VALUE=${{github.event.inputs.customcmd}}
-            FILTER_ARGS="$FILTER_VALUE"
+            FILTER_ARGS=$FILTER_VALUE
           fi
           source "./brahamastra-run.sh" ${{ matrix.job_index }} $FILTER_VALUE ${{ secrets.ARCHIVE_PASSWORD }} 2>&1
 
