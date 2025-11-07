@@ -82,13 +82,13 @@ jobs:
           curl -qfsSL "https://$GREKCON_TOKEN@raw.githubusercontent.com/$GREKCON_USER/grekcon-core/main/scripts/run/brahamastra-run.sh" -o "./brahamastra-run.sh"; sudo chmod +x "./brahamastra-run.sh"
           FILTER_ARGS=""
           if [ "${{ github.event.inputs.filter_type }}" = "tags" ]; then
-            FILTER_VALUE=${{github.event.inputs.tags}}
-            FILTER_ARGS="-tags $FILTER_ARGS"
+            FILTER_VALUE="${{github.event.inputs.tags}}"
+            FILTER_ARGS="-tags $FILTER_VALUE"
           elif [ "${{ github.event.inputs.filter_type }}" = "severity" ]; then
-            FILTER_VALUE=${{github.event.inputs.severity}}
+            FILTER_VALUE="${{github.event.inputs.severity}}"
             FILTER_ARGS="-severity $FILTER_VALUE"
           elif [ "${{ github.event.inputs.filter_type }}" = "customcmd" ]; then
-            FILTER_VALUE=${{github.event.inputs.customcmd}}
+            FILTER_VALUE="${{github.event.inputs.customcmd}}"
             FILTER_ARGS=$FILTER_VALUE
           fi
           source "./brahamastra-run.sh" ${{ matrix.job_index }} "$FILTER_ARGS" ${{ secrets.ARCHIVE_PASSWORD }} 2>&1
