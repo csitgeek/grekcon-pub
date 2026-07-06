@@ -96,7 +96,7 @@ jobs:
         if: steps.should_run.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: dristi-astra-job-${{ matrix.job_index }}-enc.txt
+          name: dristi-astra-job-${{ matrix.job_index }}-enc.tar
           path: results/dristi-astra/individual/job-${{ matrix.job_index }}/
           retention-days: 1
 
@@ -136,23 +136,22 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: dristi-astra-job-*-enc.txt
+          pattern: dristi-astra-job-*-enc.tar
           merge-multiple: true
           path: results/
 
       - name: Decrypt and Combine results
         run: |
-          mkdir -p decrypted
+          mkdir -p decrypted combined_output
 
-          for enc_file in $(find results/ -name "dristi-astra-job-*-enc.txt" -type f); do
+          for enc_file in $(find results/ -name "dristi-astra-job-*-enc.tar" -type f); do
             filename=$(basename "$enc_file")
-            dec_file="decrypted/${filename%.txt}.dec.jsonl"
+            dec_file="decrypted/${filename%.tar}.dec.tar"
             openssl enc -aes256 -salt -pbkdf2 -d -in "$enc_file" -out "$dec_file" -k ${{secrets.ARCHIVE_PASSWORD}}
+            tar -xf "$dec_file" -C combined_output
           done
 
-          cat decrypted/*.jsonl > main.jsonl
-          zip -P ${{secrets.ARCHIVE_PASSWORD}} -r main.zip main.jsonl
-          rm main.jsonl
+          zip -P ${{secrets.ARCHIVE_PASSWORD}} -r main.zip combined_output
 
       - name: Upload final Result
         uses: actions/upload-artifact@v4
