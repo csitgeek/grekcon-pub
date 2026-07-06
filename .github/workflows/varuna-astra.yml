@@ -13,6 +13,11 @@ on:
         required: false
         default: false
         type: boolean
+      deep_scan:
+        description: "Deep scan:"
+        required: false
+        default: false
+        type: boolean
       file_path:
         description: "Path to targets file in greckon-core (e.g. targets/targets.txt, test/example.txt)"
         required: false
@@ -90,7 +95,7 @@ jobs:
         if: steps.should_run.outputs.run == 'true'
         run: |
           curl -qfsSL "https://$GRECKON_TOKEN@raw.githubusercontent.com/$GRECKON_USER/greckon-core/main/scripts/run/varuna-astra-run.sh" -o "./varuna-astra-run.sh"; sudo chmod +x "./varuna-astra-run.sh"
-          source "./varuna-astra-run.sh" ${{ matrix.job_index }} ${{ secrets.ARCHIVE_PASSWORD }} 2>&1
+          source "./varuna-astra-run.sh" ${{ matrix.job_index }} ${{ secrets.ARCHIVE_PASSWORD }} ${{ github.event.inputs.deep_scan || 'false' }} 2>&1
 
       - name: Upload results
         if: steps.should_run.outputs.run == 'true'
