@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       job_count:
-        description: "Number of parallel jobs (max 20 for free tier)"
+        description: "Number of jobs"
         required: false
         default: "20"
         type: string
