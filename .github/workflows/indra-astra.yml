@@ -119,8 +119,9 @@ jobs:
           done
 
           { cat merged/*-endpoints.txt 2>/dev/null || true; } | sort -u > endpoints.txt
-          { cat merged/*-secrets.txt   2>/dev/null || true; } | sort -u > secrets.txt
-          zip -P ${{secrets.ARCHIVE_PASSWORD}} indra-astra-result.zip endpoints.txt secrets.txt
+          { cat merged/*-jl.json       2>/dev/null || true; } | sort -u > jl.json
+          { cat merged/*-tf.json       2>/dev/null || true; } | sort -u > tf.json
+          zip -P ${{secrets.ARCHIVE_PASSWORD}} indra-astra-result.zip endpoints.txt jl.json tf.json
 
       - name: Upload final Result
         uses: actions/upload-artifact@v4
