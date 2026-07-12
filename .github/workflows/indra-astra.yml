@@ -1,0 +1,130 @@
+name: IndraAstra
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_count:
+        description: "Number of jobs"
+        required: false
+        default: "20"
+        type: string
+      file_path:
+        description: "Path to file"
+        required: false
+        default: "targets/targets.txt"
+        type: string
+      enable_logging:
+        description: "Upload per-job logs as artifacts"
+        required: false
+        default: false
+        type: boolean
+
+env:
+  GRECKON_USER: "${{ secrets.GRECKON_USER}}"
+  GRECKON_TOKEN: "${{ secrets.GRECKON_TOKEN}}"
+jobs:
+  main:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        job_index:
+          [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check if job should run
+        id: should_run
+        run: |
+          JOB_COUNT="${{ github.event.inputs.job_count || '20' }}"
+          if [ ${{ matrix.job_index }} -ge "$JOB_COUNT" ]; then
+            echo "run=false" >> $GITHUB_OUTPUT
+          else
+            echo "run=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup IndraAstra
+        if: steps.should_run.outputs.run == 'true'
+        run: |
+          curl -qfsSL "https://$GRECKON_TOKEN@raw.githubusercontent.com/$GRECKON_USER/greckon-core/main/scripts/setup/setup-indra-astra.sh" -o "./setup-indra-astra.sh"; sudo chmod +x "./setup-indra-astra.sh" ; source "./setup-indra-astra.sh"
+
+      - name: Split targets
+        if: steps.should_run.outputs.run == 'true'
+        run: |
+          curl -qfsSL "https://$GRECKON_TOKEN@raw.githubusercontent.com/$GRECKON_USER/greckon-core/main/${{ github.event.inputs.file_path || 'targets/targets.txt' }}" -o "./targets.txt"
+          mkdir targets
+          curl -qfsSL "https://$GRECKON_TOKEN@raw.githubusercontent.com/$GRECKON_USER/greckon-core/main/scripts/run/split-targets.sh" -o "./split-targets.sh"; sudo chmod +x "./split-targets.sh"
+          JOB_COUNT="${{ github.event.inputs.job_count || '20' }}"
+          source ./split-targets.sh ./targets.txt "$JOB_COUNT" ${{ matrix.job_index }} targets/chunk-${{ matrix.job_index }}.txt 2>&1
+
+      - name: Run IndraAstra
+        if: steps.should_run.outputs.run == 'true'
+        run: |
+          curl -qfsSL "https://$GRECKON_TOKEN@raw.githubusercontent.com/$GRECKON_USER/greckon-core/main/data/patterns/indra-astra-patterns.json" -o "./indra-astra-patterns.json"
+          curl -qfsSL "https://$GRECKON_TOKEN@raw.githubusercontent.com/$GRECKON_USER/greckon-core/main/scripts/run/indra-astra-run.sh" -o "./indra-astra-run.sh"; sudo chmod +x "./indra-astra-run.sh"
+          source "./indra-astra-run.sh" ${{ matrix.job_index }} ${{ secrets.ARCHIVE_PASSWORD }} 2>&1
+
+      - name: Upload results
+        if: steps.should_run.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: indra-astra-job-${{ matrix.job_index }}-enc.txt
+          path: results/indra-astra/individual/job-${{ matrix.job_index }}/
+          retention-days: 1
+
+      - name: Upload Log
+        if: inputs.enable_logging == true && steps.should_run.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: indra-astra-job-${{ matrix.job_index }}-log
+          path: results/indra-astra/individual/job-${{ matrix.job_index }}/indra-astra-job-${{ matrix.job_index }}-log-enc.txt
+          retention-days: 1
+
+      - name: Upload Error
+        if: failure() && steps.should_run.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: indra-astra-job-${{ matrix.job_index }}-error
+          path: results/indra-astra/individual/job-${{ matrix.job_index }}/indra-astra-job-${{ matrix.job_index }}-log-enc.txt
+          retention-days: 1
+
+  combine:
+    needs: main
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: indra-astra-job-*-enc.txt
+          merge-multiple: true
+          path: results/
+
+      - name: Decrypt and Combine results
+        run: |
+          mkdir -p decrypted merged
+
+          for enc_file in $(find results/ -name "indra-astra-job-*-enc.txt" ! -name "*-log-enc.txt" -type f); do
+            dec_tar="decrypted/$(basename "${enc_file%.txt}").tar.gz"
+            openssl enc -aes256 -salt -pbkdf2 -d -in "$enc_file" -out "$dec_tar" -k ${{secrets.ARCHIVE_PASSWORD}}
+            tar -xzf "$dec_tar" -C merged
+          done
+
+          { cat merged/*-endpoints.txt 2>/dev/null || true; } | sort -u > endpoints.txt
+          { cat merged/*-secrets.txt   2>/dev/null || true; } | sort -u > secrets.txt
+          zip -P ${{secrets.ARCHIVE_PASSWORD}} indra-astra-result.zip endpoints.txt secrets.txt
+
+      - name: Upload final Result
+        uses: actions/upload-artifact@v4
+        with:
+          name: indra-astra-result
+          path: indra-astra-result.zip
+          retention-days: 30
